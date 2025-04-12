@@ -7,3 +7,4 @@ Offboard_control:
     topic_vehicle_local_position: "/fmu/out/vehicle_local_position"
     topic_vehicle_attitude: "/fmu/out/vehicle_attitude"
     topic_vehicle_status: "/fmu/out/vehicle_status_v1"
+    topic_vehicle_global_position: "/fmu/out/vehicle_global_position"

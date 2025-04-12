@@ -1,16 +1,21 @@
 import rclpy
 import numpy as np
+import math
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSDurabilityPolicy, QoSReliabilityPolicy
 
 from px4_msgs.msg import OffboardControlMode, VehicleCommand, VehicleStatus
 from px4_msgs.msg import TrajectorySetpoint, VehicleAttitudeSetpoint
-from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude, VehicleRatesSetpoint
+from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude, VehicleGlobalPosition
 
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
+EARTH_RADIUS = 6371000.0  # 지구 반경 (미터)
+
 class OffboardControl(Node):
     def __init__(self):
+        """ Initialize Node """
+        """ Setting QoS Profile and Topic Pub / Sub """
         super().__init__("Offboard_control")
 
         # QoS profile
@@ -21,7 +26,7 @@ class OffboardControl(Node):
             depth=1
         )
 
-        # 토픽 이름을 파라미터 선언함으로써 쉽게 바꿀 수 있도록 설정
+        # Parameter Declaration
         self.declare_parameter("topic_offboard_control_mode", "/fmu/in/offboard_control_mode")
         self.declare_parameter("topic_vehicle_attitude_setpoint", "/fmu/in/vehicle_attitude_setpoint")
         self.declare_parameter("topic_trajectory_setpoint", "/fmu/in/trajectory_setpoint")
@@ -30,7 +35,7 @@ class OffboardControl(Node):
         self.declare_parameter("topic_vehicle_attitude", "/fmu/out/vehicle_attitude")
         self.declare_parameter("topic_vehicle_status", "/fmu/out/vehicle_status_v1")
 
-        # yaml 파일로부터 파라미터 값을 불러오기
+        # Parameter Value
         topic_offboard_control_mode = self.get_parameter("topic_offboard_control_mode").value
         topic_vehicle_attitude_setpoint = self.get_parameter("topic_vehicle_attitude_setpoint").value
         topic_trajectory_setpoint = self.get_parameter("topic_trajectory_setpoint").value
@@ -39,6 +44,7 @@ class OffboardControl(Node):
         topic_vehicle_attitude = self.get_parameter("topic_vehicle_attitude").value
         topic_vehicle_status = self.get_parameter("topic_vehicle_status").value
 
+        # Topic Publisher
         self.offboard_control_mode_publisher = self.create_publisher(
             OffboardControlMode, topic_offboard_control_mode, qos_profile)
         self.attitude_setpoint_publisher = self.create_publisher(
@@ -48,29 +54,119 @@ class OffboardControl(Node):
         self.vehicle_command_publisher = self.create_publisher(
             VehicleCommand, topic_vehicle_command, qos_profile)
 
+        # Topic Subscriber
         self.vehicle_local_position_subscriber = self.create_subscription(
             VehicleLocalPosition, topic_vehicle_local_position, self.vehicle_local_position_callback, qos_profile)
         self.vehicle_attitude_subscriber = self.create_subscription(
             VehicleAttitude, topic_vehicle_attitude, self.vehicle_attitude_callback, qos_profile)
         self.vehicle_status_subscriber = self.create_subscription(
             VehicleStatus, topic_vehicle_status, self.vehicle_status_callback, qos_profile)
+        self.vehicle_global_position_subscriber = self.create_subscription(
+            VehicleGlobalPosition, "/fmu/out/vehicle_global_position", self.vehicle_global_position_callback, qos_profile)
 
-        # 각종 초기변수들
-        self.state = 0
+        # WGS84 Waypoints
+        self.wgs84_waypoints = {
+            "WP0": {"lat": 37.449187, "lon": 126.653021, "alt": 0.0},
+            "WP1": {"lat": 37.449187, "lon": 126.653021, "alt": 20.0},
+            "WP2": {"lat": 37.452717, "lon": 126.653195, "alt": 20.0},
+            "WP3": {"lat": 37.454559, "lon": 126.657573, "alt": 20.0},
+            "WP4": {"lat": 37.454490, "lon": 126.648858, "alt": 20.0},
+            "WP5": {"lat": 37.452717, "lon": 126.653195, "alt": 20.0},
+            "WP6": {"lat": 37.452059, "lon": 126.647888, "alt": 3.0},
+            "WP7": {"lat": 37.451786, "lon": 126.659597, "alt": 20.0},
+            "WP8": {"lat": 37.452717, "lon": 126.653195, "alt": 10.0},
+            "WP9": {"lat": 37.449187, "lon": 126.653021, "alt": 0.0}
+        }
+        # NED Waypoints
+        self.ned_waypoints = {}
+        # Mission Profile
+        self.mission_waypoints = {
+            "WP0": {"action": "TAKEOFF", "transition": None},
+            "WP1": {"action": None, "transition": None},
+            "WP2": {"action": None, "transition": None},
+            "WP3": {"action": None, "transition": None},
+            "WP4": {"action": None, "transition": None},
+            "WP5": {"action": None, "transition": None},
+            "WP6": {"action": None, "transition": None},
+            "WP7": {"action": None, "transition": None},
+            "WP8": {"action": None, "transition": None},
+            "WP9": {"action": "LAND", "transition": None}
+        }
+        self.pre_calculate_waypoint_and_initialize_variable()
+
+####################### Initialize and Coordinate Conversion Functions #######################
+    def pre_calculate_waypoint_and_initialize_variable(self):
+        """ Pre-calculate waypoints and ready vehicle """
+        """ Calculate WGS84 to NED Coordinate for using in px4-msgs"""
+        """ And Initialize various variables, Setting Timer Callback"""
+        # 경로기준범 초기화
+        self.ref_lat = math.radians(self.wgs84_waypoints["WP0"]["lat"])
+        self.ref_lon = math.radians(self.wgs84_waypoints["WP0"]["lon"])
+        self.ref_sin_lat = math.sin(self.ref_lat)
+        self.ref_cos_lat = math.cos(self.ref_lat)
+        self.ref_init_done = True
+
+        # WGS84 좌표를 NED 좌표로 변환한 후에 저장
+        for wp_name, wp_data in self.wgs84_waypoints.items():
+            lat = wp_data["lat"]
+            lon = wp_data["lon"]
+            alt = wp_data["alt"]
+            x, y = self.wgs84_to_ned(lat, lon)
+            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": alt}
+        self.get_logger().info(f"Pre-calculated waypoints in NED coordinates:\n{self.ned_waypoints}")
+
+        # 각종 변수들 초기화 및 선언
+        self.state = None
         self.offboard_setpoint_counter = 0
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_attitude = VehicleAttitude()
         self.vehicle_status = VehicleStatus()
+        self.vehicle_global_position = VehicleGlobalPosition()
 
-        self.takeoff_height = -20.0
         self.pos_x = 0.0
         self.pos_y = 0.0
         self.pos_z = 0.0
         self.pos_yaw = 0.0
         self.dist = 0.0
 
+        # timer 콜백 함수 설정
         self.timer = self.create_timer(0.01, self.timer_callback)
 
+    def wgs84_to_ned(self, lat, lon):
+        """
+        주어진 위도와 경도(degrees)를 기준점에 대해 Azimuthal Equidistant Projection 방식으로 투영하여
+        로컬 좌표 (x, y) 를 미터 단위로 계산
+        """
+        # 입력 좌표를 라디안으로 변환
+        lat_rad = math.radians(lat)
+        lon_rad = math.radians(lon)
+        sin_lat = math.sin(lat_rad)
+        cos_lat = math.cos(lat_rad)
+        cos_d_lon = math.cos(lon_rad - self.ref_lon)
+
+        # 내적 값 계산 후 -1~1 범위로 제한
+        arg = self.ref_sin_lat * sin_lat + self.ref_cos_lat * cos_lat * cos_d_lon
+        arg = max(min(arg, 1.0), -1.0)
+        c = math.acos(arg)
+
+        # c가 0이 아니면 비율 k 계산 (c/sin(c))
+        k = c / math.sin(c) if abs(c) > 1e-6 else 1.0
+
+        x = k * (self.ref_cos_lat * sin_lat - self.ref_sin_lat * cos_lat * cos_d_lon) * EARTH_RADIUS
+        y = k * cos_lat * math.sin(lon_rad - self.ref_lon) * EARTH_RADIUS
+
+        return x, y
+
+    def get_distance(self):
+        pass
+
+    def calculate_bearing():
+        pass
+
+    def is_waypoint_reached():
+        pass
+######################## Callback Functions #######################
+                # Functions for subscribing messages"""
     def vehicle_local_position_callback(self, vehicle_local_position):
         """Callback for vehicle local position."""
         self.vehicle_local_position = vehicle_local_position
@@ -83,6 +179,12 @@ class OffboardControl(Node):
         """Callback for vehicle status."""
         self.vehicle_status = vehicle_status
 
+    def vehicle_global_position_callback(self, vehicle_global_position):
+        """Callback for vehicle global position."""
+        self.vehicle_global_position = vehicle_global_position
+
+########################## Command Functions #######################
+                    # Functions for Offboard Control
     def arm(self):
         """Send an arm command to the vehicle."""
         self.publish_vehicle_command(
@@ -145,13 +247,8 @@ class OffboardControl(Node):
         msg.from_external = True
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.vehicle_command_publisher.publish(msg)
-
-    def get_distance(self):
-        dx = self.vehicle_local_position.x - self.pos_x
-        dy = self.vehicle_local_position.y - self.pos_y
-        dz = self.vehicle_local_position.z - self.pos_z
-        return np.linalg.norm([dx, dy, dz])
-
+############################## Timer Callback Function #######################
+# Functions for Finite State Machine and Sequential Offboard Control
     def timer_callback(self):
         self.vehicle_euler = euler_from_quaternion(self.vehicle_attitude.q)
         self._roll_d  = np.rad2deg(self.vehicle_euler[2])
