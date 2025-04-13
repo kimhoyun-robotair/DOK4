@@ -8,7 +8,7 @@ from px4_msgs.msg import OffboardControlMode, VehicleCommand, VehicleStatus
 from px4_msgs.msg import TrajectorySetpoint, VehicleAttitudeSetpoint
 from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude, VehicleGlobalPosition
 
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+# from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 EARTH_RADIUS = 6371000.0  # 지구 반경 (미터)
 
@@ -66,16 +66,16 @@ class OffboardControl(Node):
 
         # WGS84 Waypoints
         self.wgs84_waypoints = {
-            "WP0": {"lat": 37.449187, "lon": 126.653021, "alt": 0.0},
-            "WP1": {"lat": 37.449187, "lon": 126.653021, "alt": 20.0},
-            "WP2": {"lat": 37.452717, "lon": 126.653195, "alt": 20.0},
-            "WP3": {"lat": 37.454559, "lon": 126.657573, "alt": 20.0},
-            "WP4": {"lat": 37.454490, "lon": 126.648858, "alt": 20.0},
-            "WP5": {"lat": 37.452717, "lon": 126.653195, "alt": 20.0},
-            "WP6": {"lat": 37.452059, "lon": 126.647888, "alt": 3.0},
-            "WP7": {"lat": 37.451786, "lon": 126.659597, "alt": 20.0},
-            "WP8": {"lat": 37.452717, "lon": 126.653195, "alt": 10.0},
-            "WP9": {"lat": 37.449187, "lon": 126.653021, "alt": 10.0}
+            "WP0": {"lat": 37.449187, "lon": 126.653021, "alt": -0.0},
+            "WP1": {"lat": 37.449187, "lon": 126.653021, "alt": -20.0},
+            "WP2": {"lat": 37.452717, "lon": 126.653195, "alt": -20.0},
+            "WP3": {"lat": 37.454559, "lon": 126.657573, "alt": -20.0},
+            "WP4": {"lat": 37.454490, "lon": 126.648858, "alt": -20.0},
+            "WP5": {"lat": 37.452717, "lon": 126.653195, "alt": -20.0},
+            "WP6": {"lat": 37.452059, "lon": 126.647888, "alt": -3.0},
+            "WP7": {"lat": 37.451786, "lon": 126.659597, "alt": -20.0},
+            "WP8": {"lat": 37.452717, "lon": 126.653195, "alt": -10.0},
+            "WP9": {"lat": 37.449187, "lon": 126.653021, "alt": -10.0}
         }
         # NED Waypoints
         self.ned_waypoints = {}
@@ -115,7 +115,7 @@ class OffboardControl(Node):
             lon = wp_data["lon"]
             alt = wp_data["alt"]
             x, y = self.wgs84_to_ned(lat, lon)
-            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": -alt}
+            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": alt}
         self.get_logger().info(f"Pre-calculated waypoints in NED coordinates:\n{self.ned_waypoints}")
 
         # 각종 변수들 초기화 및 선언
@@ -134,7 +134,7 @@ class OffboardControl(Node):
         self.takeoff_height = self.ned_waypoints["WP1"]["z"]
         self.waypoint_reach_or_not = False
 
-        # timer 콜백 함수 설정
+        # timer 콜백 함수 설정   
         self.timer = self.create_timer(0.01, self.timer_callback)
 
     def wgs84_to_ned(self, lat, lon):
@@ -205,7 +205,6 @@ class OffboardControl(Node):
         # 라디안을 도 단위로 변환
         yaw_deg = math.degrees(yaw_rad)
         return yaw_deg
-
 ######################## Callback Functions #######################
                 # Functions for subscribing messages
     def vehicle_local_position_callback(self, vehicle_local_position):
@@ -291,12 +290,14 @@ class OffboardControl(Node):
 ############################## Timer Callback Function #######################
 # Functions for Finite State Machine and Sequential Offboard Control
     def timer_callback(self):
+        """
         self.vehicle_euler = euler_from_quaternion(self.vehicle_attitude.q)
         self._roll_d  = np.rad2deg(self.vehicle_euler[2])
         self._pitch_d = np.rad2deg(self.vehicle_euler[1])
         self._yaw_d   = np.rad2deg(self.vehicle_euler[0])
         print("S{} Time {:.2f}, ".format(self.state, (self.get_clock().now().nanoseconds/1000000000)%1000.0), end=' ')
-
+        """
+        # self.get_logger().info(f"{self.vehicle_local_position.x}, {self.vehicle_local_position.y},{self.vehicle_local_position.z}, {self.state}")
         # Take-off 상태 처리
         if self.state == "NOT_READY":
             self.publish_heartbeat_ob_pos_sp()
@@ -307,19 +308,19 @@ class OffboardControl(Node):
                 self.pos_x = 0.0
                 self.pos_y = 0.0
                 self.pos_z = self.takeoff_height
-                self.pos_yaw = np.rad2deg(self.vehicle_euler[0])
+                # self.pos_yaw = np.rad2deg(self.vehicle_euler[0])
+                self.pos_yaw = self.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP1"])
                 self.engage_offboard_mode()
             if self.offboard_setpoint_counter == 9:
                 self.arm()
 
             self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
-            
             print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
                 self.vehicle_local_position.x,
                 self.vehicle_local_position.y,
                 self.vehicle_local_position.z), end=' ')
             print(" / Move to Home")
-            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP0"])
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP1"])
             if (self.waypoint_reach_or_not == True and
                 self.vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD):
                 self.state = "TAKEOFF"
