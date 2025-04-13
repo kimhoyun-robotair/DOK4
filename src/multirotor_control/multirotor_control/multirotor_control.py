@@ -75,7 +75,7 @@ class OffboardControl(Node):
             "WP6": {"lat": 37.452059, "lon": 126.647888, "alt": 3.0},
             "WP7": {"lat": 37.451786, "lon": 126.659597, "alt": 20.0},
             "WP8": {"lat": 37.452717, "lon": 126.653195, "alt": 10.0},
-            "WP9": {"lat": 37.449187, "lon": 126.653021, "alt": 0.0}
+            "WP9": {"lat": 37.449187, "lon": 126.653021, "alt": 10.0}
         }
         # NED Waypoints
         self.ned_waypoints = {}
@@ -90,21 +90,24 @@ class OffboardControl(Node):
             "WP6": {"action": None, "transition": None},
             "WP7": {"action": None, "transition": None},
             "WP8": {"action": None, "transition": None},
-            "WP9": {"action": "LAND", "transition": None}
         }
         self.pre_calculate_waypoint_and_initialize_variable()
+        self.get_logger().info("Initialization complete.")
 
 ####################### Initialize and Coordinate Conversion Functions #######################
     def pre_calculate_waypoint_and_initialize_variable(self):
         """ Pre-calculate waypoints and ready vehicle """
         """ Calculate WGS84 to NED Coordinate for using in px4-msgs"""
         """ And Initialize various variables, Setting Timer Callback"""
-        # 경로기준범 초기화
+        # 경로기준점 초기화
         self.ref_lat = math.radians(self.wgs84_waypoints["WP0"]["lat"])
         self.ref_lon = math.radians(self.wgs84_waypoints["WP0"]["lon"])
         self.ref_sin_lat = math.sin(self.ref_lat)
         self.ref_cos_lat = math.cos(self.ref_lat)
         self.ref_init_done = True
+
+        if self.ref_init_done:
+            self.get_logger().info("Reference point initialized successfully.")
 
         # WGS84 좌표를 NED 좌표로 변환한 후에 저장
         for wp_name, wp_data in self.wgs84_waypoints.items():
@@ -112,11 +115,11 @@ class OffboardControl(Node):
             lon = wp_data["lon"]
             alt = wp_data["alt"]
             x, y = self.wgs84_to_ned(lat, lon)
-            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": alt}
+            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": -alt}
         self.get_logger().info(f"Pre-calculated waypoints in NED coordinates:\n{self.ned_waypoints}")
 
         # 각종 변수들 초기화 및 선언
-        self.state = None
+        self.state = "NOT_READY"
         self.offboard_setpoint_counter = 0
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_attitude = VehicleAttitude()
@@ -128,6 +131,8 @@ class OffboardControl(Node):
         self.pos_z = 0.0
         self.pos_yaw = 0.0
         self.dist = 0.0
+        self.takeoff_height = self.ned_waypoints["WP1"]["z"]
+        self.waypoint_reach_or_not = False
 
         # timer 콜백 함수 설정
         self.timer = self.create_timer(0.01, self.timer_callback)
@@ -157,16 +162,52 @@ class OffboardControl(Node):
 
         return x, y
 
-    def get_distance(self):
-        pass
+    def get_distance_between_ned(self, x_now, y_now, z_now, x_next, y_next, z_next):
+        dx = x_next - x_now
+        dy = y_next - y_now
+        dz = z_next - z_now
 
-    def calculate_bearing():
-        pass
+        dist_xy = math.sqrt(dx*dx+dy*dy)
+        dist_z = abs(dz)
+        total_dist = math.sqrt(dist_xy*dist_xy + dist_z*dist_z)
 
-    def is_waypoint_reached():
-        pass
+        return total_dist, dist_xy, dist_z
+
+    def is_waypoint_reached(self, waypoint):
+        total_dist, dist_xy, dist_z = self.get_distance_between_ned(
+            self.vehicle_local_position.x, self.vehicle_local_position.y, self.vehicle_local_position.z,
+            waypoint["x"], waypoint["y"], waypoint["z"])
+        
+        if dist_xy <= 1.0 and dist_z <= 1.0:
+            return True
+        else:
+            return False
+
+    def calculate_bearing(self, lat1, lon1, lat2, lon2):
+        lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+        dlon = lon2 - lon1
+        y = math.sin(dlon) * math.cos(lat2)
+        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+        initial_bearing = math.atan2(y, x)
+        # Convert to degrees
+        initial_bearing = math.degrees(initial_bearing)
+        # Normalize to 0-360
+        bearing = (initial_bearing + 360) % 360
+        return math.radians(bearing)
+
+    def get_attitude(self, current_wp, next_wp):
+        dx = next_wp["x"] - current_wp["x"]
+        dy = next_wp["y"] - current_wp["y"]
+
+        # arctan2는 (dy, dx)를 인자로 받아 라디안 단위의 각도를 반환.
+        yaw_rad = math.atan2(dy, dx)
+
+        # 라디안을 도 단위로 변환
+        yaw_deg = math.degrees(yaw_rad)
+        return yaw_deg
+
 ######################## Callback Functions #######################
-                # Functions for subscribing messages"""
+                # Functions for subscribing messages
     def vehicle_local_position_callback(self, vehicle_local_position):
         """Callback for vehicle local position."""
         self.vehicle_local_position = vehicle_local_position
@@ -194,7 +235,7 @@ class OffboardControl(Node):
     def disarm(self):
         """Send a disarm command to the vehicle."""
         self.publish_vehicle_command(
-            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, params=0.0)
+            VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=0.0)
         self.get_logger().info("Disarm command sent")
 
     def engage_offboard_mode(self):
@@ -254,10 +295,10 @@ class OffboardControl(Node):
         self._roll_d  = np.rad2deg(self.vehicle_euler[2])
         self._pitch_d = np.rad2deg(self.vehicle_euler[1])
         self._yaw_d   = np.rad2deg(self.vehicle_euler[0])
-        print("S{:d} Time {:.2f}, ".format(self.state, (self.get_clock().now().nanoseconds/1000000000)%1000.0), end=' ')
+        print("S{} Time {:.2f}, ".format(self.state, (self.get_clock().now().nanoseconds/1000000000)%1000.0), end=' ')
 
         # Take-off 상태 처리
-        if self.state == 0:
+        if self.state == "NOT_READY":
             self.publish_heartbeat_ob_pos_sp()
             if self.offboard_setpoint_counter < 10:
                 self.offboard_setpoint_counter += 1
@@ -272,20 +313,184 @@ class OffboardControl(Node):
                 self.arm()
 
             self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
-            self.dist = self.get_distance()
+            
             print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
                 self.vehicle_local_position.x,
                 self.vehicle_local_position.y,
                 self.vehicle_local_position.z), end=' ')
             print(" / Move to Home")
-            if (self.vehicle_local_position.z <= self.takeoff_height + 1 and
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP0"])
+            if (self.waypoint_reach_or_not == True and
                 self.vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD):
-                self.state = 1
+                self.state = "TAKEOFF"
 
-        elif self.state == 1:
+        elif self.state == "TAKEOFF":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP1"])
+            self.pos_x = self.ned_waypoints["WP1"]["x"]
+            self.pos_y = self.ned_waypoints["WP1"]["y"]
+            self.pos_z = self.ned_waypoints["WP1"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP1"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Takeoff to WP1")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_1"
+
+        elif self.state == "WAYPOINT_1":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP1"], self.ned_waypoints["WP2"])
+            self.pos_x = self.ned_waypoints["WP2"]["x"]
+            self.pos_y = self.ned_waypoints["WP2"]["y"]
+            self.pos_z = self.ned_waypoints["WP2"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP2"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP2")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_2"
+
+        elif self.state == "WAYPOINT_2":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP2"], self.ned_waypoints["WP3"])
+            self.pos_x = self.ned_waypoints["WP3"]["x"]
+            self.pos_y = self.ned_waypoints["WP3"]["y"]
+            self.pos_z = self.ned_waypoints["WP3"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP3"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP3")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_3"
+
+        elif self.state == "WAYPOINT_3":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP3"], self.ned_waypoints["WP4"])
+            self.pos_x = self.ned_waypoints["WP4"]["x"]
+            self.pos_y = self.ned_waypoints["WP4"]["y"]
+            self.pos_z = self.ned_waypoints["WP4"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP4"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP4")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_4"
+
+        elif self.state == "WAYPOINT_4":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP4"], self.ned_waypoints["WP5"])
+            self.pos_x = self.ned_waypoints["WP5"]["x"]
+            self.pos_y = self.ned_waypoints["WP5"]["y"]
+            self.pos_z = self.ned_waypoints["WP5"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP5"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP5")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_5"
+
+        elif self.state == "WAYPOINT_5":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP5"], self.ned_waypoints["WP6"])
+            self.pos_x = self.ned_waypoints["WP6"]["x"]
+            self.pos_y = self.ned_waypoints["WP6"]["y"]
+            self.pos_z = self.ned_waypoints["WP6"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP6"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP6")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_6"
+
+        elif self.state == "WAYPOINT_6":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP6"], self.ned_waypoints["WP7"])
+            self.pos_x = self.ned_waypoints["WP7"]["x"]
+            self.pos_y = self.ned_waypoints["WP7"]["y"]
+            self.pos_z = self.ned_waypoints["WP7"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP7"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP7")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_7"
+
+        elif self.state == "WAYPOINT_7":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP7"], self.ned_waypoints["WP8"])
+            self.pos_x = self.ned_waypoints["WP8"]["x"]
+            self.pos_y = self.ned_waypoints["WP8"]["y"]
+            self.pos_z = self.ned_waypoints["WP8"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP8"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP8")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_8"
+
+        elif self.state == "WAYPOINT_8":
+            self.publish_heartbeat_ob_pos_sp()
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP8"], self.ned_waypoints["WP9"])
+            self.pos_x = self.ned_waypoints["WP9"]["x"]
+            self.pos_y = self.ned_waypoints["WP9"]["y"]
+            self.pos_z = self.ned_waypoints["WP9"]["z"]
+            
+            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
+            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP9"])
+            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
+                self.vehicle_local_position.x,
+                self.vehicle_local_position.y,
+                self.vehicle_local_position.z), end=' ')
+            print(" / Fly to WP9")
+
+            if self.waypoint_reach_or_not == True:
+                self.state = "WAYPOINT_9"
+    
+        elif self.state == "WAYPOINT_9":
             self.publish_heartbeat_ob_pos_sp()
             self.land()
-            exit(0)
+            self.get_logger().info("Landing...")
+            rclpy.shutdown()
 
 def main(args=None) -> None:
     print('Starting offboard control node...')
