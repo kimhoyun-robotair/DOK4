@@ -1,0 +1,19 @@
+[INFO] [launch]: All log files can be found below /home/kimhoyun/.ros/log/2025-04-14-20-32-13-629387-DESKTOP-AN2F15B-14691
+[INFO] [launch]: Default logging verbosity is set to INFO
+[WARNING] [launch_ros.actions.node]: Parameter file path is not a file: /home/kimhoyun/DOK4/install/multirotor_control/share/multirotor_control/config/config.yaml
+[INFO] [multirotor_control-1]: process started with pid [14692]
+[multirotor_control-1] Traceback (most recent call last):
+[multirotor_control-1]   File "/home/kimhoyun/DOK4/install/multirotor_control/lib/multirotor_control/multirotor_control", line 33, in <module>
+[multirotor_control-1]     sys.exit(load_entry_point('multirotor-control', 'console_scripts', 'multirotor_control')())
+[multirotor_control-1]   File "/home/kimhoyun/DOK4/build/multirotor_control/multirotor_control/multirotor_control.py", line 591, in main
+[multirotor_control-1]     offboard_control = OffboardControl()
+[multirotor_control-1]   File "/home/kimhoyun/DOK4/build/multirotor_control/multirotor_control/multirotor_control.py", line 71, in __init__
+[multirotor_control-1]     self.declare_parameter("wgs84_waypoints", {
+[multirotor_control-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 367, in declare_parameter
+[multirotor_control-1]     return self.declare_parameters('', [args], ignore_override)[0]
+[multirotor_control-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 465, in declare_parameters
+[multirotor_control-1]     descriptor.type = Parameter.Type.from_parameter_value(value).value
+[multirotor_control-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/parameter.py", line 72, in from_parameter_value
+[multirotor_control-1]     raise TypeError(
+[multirotor_control-1] TypeError: The given value is not one of the allowed types '{'WP0': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP1': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP2': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP3': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP4': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP5': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP6': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP7': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP8': {'lat': 0, 'lon': 0, 'alt': 0}, 'WP9': {'lat': 0, 'lon': 0, 'alt': 0}}'.
+[ERROR] [multirotor_control-1]: process has died [pid 14692, exit code 1, cmd '/home/kimhoyun/DOK4/install/multirotor_control/lib/multirotor_control/multirotor_control --ros-args -r __node:=multirotor_control'].
