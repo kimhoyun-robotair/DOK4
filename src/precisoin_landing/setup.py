@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'rescue_mission'
+package_name = 'precisoin_landing'
 
 setup(
     name=package_name,
