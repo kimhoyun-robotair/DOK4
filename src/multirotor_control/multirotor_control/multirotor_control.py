@@ -37,6 +37,7 @@ class OffboardControl(Node):
         self.declare_parameter("topic_vehicle_local_position", "/fmu/out/vehicle_local_position")
         self.declare_parameter("topic_vehicle_attitude", "/fmu/out/vehicle_attitude")
         self.declare_parameter("topic_vehicle_status", "/fmu/out/vehicle_status_v1")
+        self.declare_parameter("topic_vehicle_global_position", "/fmu/out/vehicle_global_position")
 
         # 파라미터 파일을 읽어오기
         topic_offboard_control_mode = self.get_parameter("topic_offboard_control_mode").value
@@ -46,6 +47,7 @@ class OffboardControl(Node):
         topic_vehicle_local_position = self.get_parameter("topic_vehicle_local_position").value
         topic_vehicle_attitude = self.get_parameter("topic_vehicle_attitude").value
         topic_vehicle_status = self.get_parameter("topic_vehicle_status").value
+        topic_vehicle_global_position = self.get_parameter("topic_vehicle_global_position").value
 
         # Topic Publisher
         self.offboard_control_mode_publisher = self.create_publisher(
@@ -65,7 +67,7 @@ class OffboardControl(Node):
         self.vehicle_status_subscriber = self.create_subscription(
             VehicleStatus, topic_vehicle_status, self.vehicle_status_callback, qos_profile)
         self.vehicle_global_position_subscriber = self.create_subscription(
-            VehicleGlobalPosition, "/fmu/out/vehicle_global_position", self.vehicle_global_position_callback, qos_profile)
+            VehicleGlobalPosition, topic_vehicle_global_position, self.vehicle_global_position_callback, qos_profile)
 
         # 좌표로 주어지는 WGS84 경로점들
         self.wgs84_waypoints = {

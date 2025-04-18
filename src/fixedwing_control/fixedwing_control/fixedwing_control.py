@@ -37,6 +37,7 @@ class OffboardControl(Node):
         self.declare_parameter("topic_vehicle_local_position", "/fmu/out/vehicle_local_position")
         self.declare_parameter("topic_vehicle_attitude", "/fmu/out/vehicle_attitude")
         self.declare_parameter("topic_vehicle_status", "/fmu/out/vehicle_status_v1")
+        self.declare_parameter("topic_vehicle_global_position", "/fmu/out/vehicle_global_position")
 
         # 파라미터 파일을 읽어오기
         topic_offboard_control_mode = self.get_parameter("topic_offboard_control_mode").value
@@ -46,6 +47,7 @@ class OffboardControl(Node):
         topic_vehicle_local_position = self.get_parameter("topic_vehicle_local_position").value
         topic_vehicle_attitude = self.get_parameter("topic_vehicle_attitude").value
         topic_vehicle_status = self.get_parameter("topic_vehicle_status").value
+        topic_vehicle_global_position = self.get_parameter("topic_vehicle_global_position").value
 
         # Topic Publisher
         self.offboard_control_mode_publisher = self.create_publisher(
@@ -65,7 +67,7 @@ class OffboardControl(Node):
         self.vehicle_status_subscriber = self.create_subscription(
             VehicleStatus, topic_vehicle_status, self.vehicle_status_callback, qos_profile)
         self.vehicle_global_position_subscriber = self.create_subscription(
-            VehicleGlobalPosition, "/fmu/out/vehicle_global_position", self.vehicle_global_position_callback, qos_profile)
+            VehicleGlobalPosition, topic_vehicle_global_position, self.vehicle_global_position_callback, qos_profile)
 
         # 좌표로 주어지는 WGS84 경로점들
         self.wgs84_waypoints = {
@@ -139,7 +141,7 @@ class OffboardControl(Node):
         self.takeoff_height = self.ned_waypoints["WP1"]["z"]
         self.waypoint_reach_or_not = False
 
-        self.declare_parameter("threshold_range", 0.0)
+        self.declare_parameter("threshold_range", 5.0)
         self.threshold_range = self.get_parameter("threshold_range").value
 
         # timer 콜백 함수 설정   
@@ -181,6 +183,12 @@ class OffboardControl(Node):
         total_dist = math.sqrt(dist_xy*dist_xy + dist_z*dist_z)
 
         return total_dist, dist_xy, dist_z
+    
+    def get_height_between_ned(self, z_now, z_next):
+        # Calculate Height Differnece between Two WP
+        dz = z_next - z_now
+        dist_z = abs(dz)
+        return dist_z
 
     def is_waypoint_reached(self, waypoint):
         # NED 좌표를 기반으로 계산했을 때 경로점에 도착했는지 여부를 판단하기
@@ -189,6 +197,14 @@ class OffboardControl(Node):
             waypoint["x"], waypoint["y"], waypoint["z"])
         
         if dist_xy <= self.threshold_range and dist_z <= self.threshold_range:
+            return True
+        else:
+            return False
+    
+    def is_takeoff_reached(self, waypoint):
+        # takeoff or not?
+        dist_z = self.get_height_between_ned(self.vehicle_local_position.z, waypoint["z"])
+        if dist_z <= self.threshold_range:
             return True
         else:
             return False
@@ -287,6 +303,19 @@ class OffboardControl(Node):
         """Send a command to land the vehicle."""
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
         self.get_logger().info("Switching to land mode")
+    
+    def takeoff(self):
+        """Switch to takeoff mode."""
+        self.publish_vehicle_command(
+            VehicleCommand.VEHICLE_CMD_NAV_TAKEOFF,
+            # param1=-1.0,     # Minimum pitch (if airspeed sensor present), desired pitch without sensor
+            # param2=0.0,     # Empty
+            # param3=0.0,     # Empty
+            # param4=np.nan(),     # Desired Yaw angle (if magnetometer present), ignored without magnetometer
+            # param5=np.nan(),     # Latitude
+            # param6=np.nan(),     # Longitude
+            param7=50.0)   # Altitude
+        self.get_logger().info("Switching to takeoff mode")
 
     def publish_heartbeat_ob_pos_sp(self):
         """Publish heartbeat message for offboard control."""
@@ -301,6 +330,8 @@ class OffboardControl(Node):
 
     def publish_position_setpoint(self, x, y, z, yaw_d: float):
         """Publish position setpoint."""
+        if self.vehicle_status.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+            self.engage_offboard_mode()
         msg = TrajectorySetpoint()
         msg.position    = [float(x), float(y), float(z)]
         msg.velocity    = [np.nan, np.nan, np.nan]
@@ -341,61 +372,28 @@ class OffboardControl(Node):
         # Take-off 상태 처리
         if self.state == "NOT_READY":
             self.publish_heartbeat_ob_pos_sp()
+            self.offboard_setpoint_counter %= 20
             if self.offboard_setpoint_counter < 10:
                 self.offboard_setpoint_counter += 1
-            self.offboard_setpoint_counter %= 11
-            if self.offboard_setpoint_counter < 5:
-                self.pos_x = 0.0
-                self.pos_y = 0.0
-                self.pos_z = self.takeoff_height
-                # self.pos_yaw = np.rad2deg(self.vehicle_euler[0])
-                self.pos_yaw = self.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP1"])
-                self.engage_offboard_mode()
-            if self.offboard_setpoint_counter == 9:
-                self.arm()
 
-            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
-            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
-                self.vehicle_local_position.x,
-                self.vehicle_local_position.y,
-                self.vehicle_local_position.z), end=' ')
-            print(" / Move to Home")
-            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP1"])
-            if (self.waypoint_reach_or_not == True and
-                self.vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD):
-                self.global_dist = self.get_distance_to_point_global_wgs84(self.vehicle_global_position.lat, 
-                                                                           self.vehicle_global_position.lon, 
-                                                                           self.wgs84_waypoints["WP0"]["lat"],
-                                                                           self.wgs84_waypoints["WP0"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP0']}")
+            # Auto Take off
+            if (self.vehicle_status.nav_state != VehicleStatus.NAVIGATION_STATE_AUTO_TAKEOFF and
+                self.offboard_setpoint_counter == 5):
+                self.arm()
+                self.takeoff()
+
+            # Arm
+            #if self.offboard_setpoint_counter == 15 and self.vehicle_local_position.z > -5.0:
+                #self.arm()
+
+            if self.vehicle_local_position.z <= -10.0:
                 self.state = "TAKEOFF"
+                self.get_logger().info("Get Ready")
 
         elif self.state == "TAKEOFF":
+            self.engage_offboard_mode()
             self.publish_heartbeat_ob_pos_sp()
-            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP1"])
-            self.pos_x = self.ned_waypoints["WP1"]["x"]
-            self.pos_y = self.ned_waypoints["WP1"]["y"]
-            self.pos_z = self.ned_waypoints["WP1"]["z"]
-            
-            self.publish_position_setpoint(self.pos_x, self.pos_y, self.pos_z, self.pos_yaw)
-            self.waypoint_reach_or_not = self.is_waypoint_reached(self.ned_waypoints["WP1"])
-            print("Pxyz {:6.2f}, {:6.2f}, {:6.2f}".format(
-                self.vehicle_local_position.x,
-                self.vehicle_local_position.y,
-                self.vehicle_local_position.z), end=' ')
-            print(" / Takeoff to WP1")
-
-            if self.waypoint_reach_or_not == True:
-                self.state = "WAYPOINT_1"
-                self.global_dist = self.get_distance_to_point_global_wgs84(self.vehicle_global_position.lat, 
-                                                                           self.vehicle_global_position.lon, 
-                                                                           self.wgs84_waypoints["WP1"]["lat"],
-                                                                           self.wgs84_waypoints["WP1"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP1']}")
-
-        elif self.state == "WAYPOINT_1":
-            self.publish_heartbeat_ob_pos_sp()
-            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP1"], self.ned_waypoints["WP2"])
+            self.pos_yaw = self.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP2"])
             self.pos_x = self.ned_waypoints["WP2"]["x"]
             self.pos_y = self.ned_waypoints["WP2"]["y"]
             self.pos_z = self.ned_waypoints["WP2"]["z"]
@@ -406,7 +404,7 @@ class OffboardControl(Node):
                 self.vehicle_local_position.x,
                 self.vehicle_local_position.y,
                 self.vehicle_local_position.z), end=' ')
-            print(" / Fly to WP2")
+            print(" / Takeoff to WP2")
 
             if self.waypoint_reach_or_not == True:
                 self.state = "WAYPOINT_2"
@@ -414,7 +412,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP2"]["lat"],
                                                                            self.wgs84_waypoints["WP2"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP2']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP1']}")
 
         elif self.state == "WAYPOINT_2":
             self.publish_heartbeat_ob_pos_sp()
@@ -437,7 +435,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP3"]["lat"],
                                                                            self.wgs84_waypoints["WP3"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP3']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP2']}")
 
         elif self.state == "WAYPOINT_3":
             self.publish_heartbeat_ob_pos_sp()
@@ -460,7 +458,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP4"]["lat"],
                                                                            self.wgs84_waypoints["WP4"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP4']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP3']}")
 
         elif self.state == "WAYPOINT_4":
             self.publish_heartbeat_ob_pos_sp()
@@ -483,7 +481,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP5"]["lat"],
                                                                            self.wgs84_waypoints["WP5"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP5']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP4']}")
 
         elif self.state == "WAYPOINT_5":
             self.publish_heartbeat_ob_pos_sp()
@@ -506,7 +504,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP6"]["lat"],
                                                                            self.wgs84_waypoints["WP6"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP6']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP5']}")
 
         elif self.state == "WAYPOINT_6":
             self.publish_heartbeat_ob_pos_sp()
@@ -529,7 +527,7 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP7"]["lat"],
                                                                            self.wgs84_waypoints["WP7"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP7']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP6']}")
 
         elif self.state == "WAYPOINT_7":
             self.publish_heartbeat_ob_pos_sp()
@@ -552,7 +550,8 @@ class OffboardControl(Node):
                                                                            self.vehicle_global_position.lon, 
                                                                            self.wgs84_waypoints["WP8"]["lat"],
                                                                            self.wgs84_waypoints["WP8"]["lon"])
-                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP8']}")
+                self.get_logger().info(f"dist: {self.global_dist}, pos: {self.vehicle_global_position}, wp: {self.wgs84_waypoints['WP7']}")
+
 
         elif self.state == "WAYPOINT_8":
             self.publish_heartbeat_ob_pos_sp()
