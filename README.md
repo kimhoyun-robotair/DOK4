@@ -13,8 +13,8 @@ This repository stores the software code and packages developed for participatio
 - **vtol_control**
   Implements and validates transition and reverse transition for VTOL, and contains offboard control example code that uses {WGS84} coordinates for long-range autonomous flight.
 
-- **rescue_mission**
-  This package is dedicated to the rescue mission scenario presented in the competition.
+- **precision landing**
+  This package is dedicated to precision landing mission scenario presented in the competition.
 
 - **final_mission**
   The final integrated software package for the overall competition system.
