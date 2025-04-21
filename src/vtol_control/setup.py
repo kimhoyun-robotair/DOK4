@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             "transition = vtol_control.transition:main",
+            "vtol_control = vtol_control.vtol_control:main",
         ],
     },
 )

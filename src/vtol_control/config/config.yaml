@@ -11,4 +11,4 @@
     topic_vehicle_global_position: "/fmu/out/vehicle_global_position"
     
     # 거리에 도착했는지 아닌지를 판독하기 위해서 필요한 값
-    threshold_range: 5.0
+    threshold_range: 2.0
