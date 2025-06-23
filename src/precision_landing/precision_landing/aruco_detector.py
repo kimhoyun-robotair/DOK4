@@ -28,7 +28,7 @@ class AprilTagTrackerNode(Node):
         self._param_marker_size = self.get_parameter('marker_size').get_parameter_value().double_value
 
         # ----------------------------------------
-        # 2) AprilTag(36h10-96) 사전 및 탐지 파라미터 생성
+        # 2) AprilTag(36h10-96) 사전 정의 및 탐지 파라미터 생성
         # ----------------------------------------
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_APRILTAG_36h10
