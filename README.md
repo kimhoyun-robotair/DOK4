@@ -4,12 +4,6 @@ This repository stores the software code and packages developed for participatio
 
 ## Included Packages
 
-- **multirotor_control**
-  Contains offboard control example code for multirotors, using {WGS84} coordinates to perform long-range autonomous flight.
-
-- **fixedwing_control**
-  Contains offboard control example code for fixed-wing aircraft, using {WGS84} coordinates to perform long-range autonomous flight.
-
 - **vtol_control**
   Implements and validates transition and reverse transition for VTOL, and contains offboard control example code that uses {WGS84} coordinates for long-range autonomous flight.
 
@@ -24,7 +18,7 @@ This repository stores the software code and packages developed for participatio
 - **OS**: Ubuntu 22.04 LTS
 - **ROS2 Distribution**: Humble
 - **Python**: 3.10
-- **Flight Control**: PX4
+- **Flight Control**: PX4 v1.15
 - **Simulation**: Gazebo Harmonic (or Gazebo Classic)
 - **Messaging Package**: px4_msgs
 
