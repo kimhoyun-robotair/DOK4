@@ -24,7 +24,6 @@ install(PROGRAMS
   src/final_mission.py
   src/geometry_utils.py
   src/vehicle_command.py
-  src/mav_mission.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

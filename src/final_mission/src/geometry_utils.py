@@ -32,7 +32,7 @@ def wgs84_to_ned(lat, lon, ref_lat, ref_lon):
 
     return x, y
 
-def get_distance_between_ned(self, x_now, y_now, z_now, x_next, y_next, z_next):
+def get_distance_between_ned(x_now, y_now, z_now, x_next, y_next, z_next):
     # NED 좌표로 주어진 두 점 사이의 거리 구하기
     dx = x_next - x_now
     dy = y_next - y_now
@@ -51,6 +51,15 @@ def is_waypoint_reached(x_now, y_now, z_now, waypoint, threshold_range):
         waypoint["x"], waypoint["y"], waypoint["z"])
     
     if dist_xy <= threshold_range and dist_z <= threshold_range:
+        return True
+    else:
+        return False
+    
+def is_height_reached(z_now, z_target, threshold_height):
+    # NED 좌표를 기반으로 계산했을 때 경로점의 고도에 도달했는지 여부를 판단하기
+    dist_z = abs(z_now - z_target)
+    
+    if dist_z <= threshold_height:
         return True
     else:
         return False
@@ -110,7 +119,7 @@ def get_distance_to_point_global_wgs84(lat_now, lon_now, lat_next, lon_next):
 
     return dist_xy
 
-def is_waypoint_reached(current_position, waypoint, threshold_range, threshold_height):
+def is_waypoint_reached_wgs84(current_position, waypoint, threshold_range, threshold_height):
     # Calculate the great-circle distance between two points on the Earth's surface
     R = 6371000  # Earth's radius in meters
     lat1, lon1 = map(math.radians, [current_position['lat'], current_position['lon']])

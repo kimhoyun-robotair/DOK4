@@ -6,7 +6,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     final_mission_node = Node(
         package="final_mission",
-        executable="final_mission.py",
+        executable="test.py",
         name="final_mission",
         output="screen",
     )
