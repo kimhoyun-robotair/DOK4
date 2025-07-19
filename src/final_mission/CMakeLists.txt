@@ -10,7 +10,6 @@ find_package(ament_cmake REQUIRED)
 find_package(px4_msgs REQUIRED)
 
 install(DIRECTORY
-  config
   launch
   final_mission
   DESTINATION share/${PROJECT_NAME}
