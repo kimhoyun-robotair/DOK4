@@ -7,12 +7,11 @@ import math
 import rclpy.executors
 from rclpy.lifecycle import LifecycleNode
 from rclpy.lifecycle import State
-from rclpy.lifecycle import Publisher
 
 from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSDurabilityPolicy, QoSReliabilityPolicy
 
-from std_msgs.msg import String
+from std_msgs.msg import Bool
 from px4_msgs.msg import (
     VehicleStatus, VehicleAttitude, VehicleCommand, OffboardControlMode,
     VehicleLocalPosition, VehicleGlobalPosition, TrajectorySetpoint
@@ -44,6 +43,10 @@ class OffboardControl(LifecycleNode):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
+        qos_profile = QoSProfile(
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1
+        )
 
         # publisher
         self.offboard_control_mode_publisher = self.create_lifecycle_publisher(
@@ -53,7 +56,7 @@ class OffboardControl(LifecycleNode):
         self.vehicle_command_publisher = self.create_lifecycle_publisher(
             VehicleCommand, '/fmu/in/vehicle_command', self.qos_profile)
         self.readiness_publisher = self.create_lifecycle_publisher(
-            String, 'precisionlanding_ready', self.qos_profile
+            Bool, '/lifecycle_aruco_tracker/ready', qos_profile
         )
         
         # subscriber
@@ -77,7 +80,7 @@ class OffboardControl(LifecycleNode):
             "WP8": {"lat": 37.452059, "lon": 126.647888, "alt": -20.0},
             "WP9": {"lat": 37.451786, "lon": 126.659597, "alt": -20.0},
             "WP10": {"lat": 37.452717, "lon": 126.653195, "alt": -10.0},
-            "WP11": {"lat": 37.449187, "lon": 126.653021, "alt": -10.0}
+            "WP11": {"lat": 37.449187, "lon": 126.653021, "alt": -5.0}
         }
 
         # NED Waypoints and Reference Point
@@ -283,7 +286,6 @@ class OffboardControl(LifecycleNode):
                                                                             self.vehicle_local_position.z,
                                                                             self.ned_waypoints["WP11"],
                                                                             self.threshold_range)
-            self.get_logger().info("Transition to MR Mode")
             if self.waypoint_reach_or_not == True:
                 self.get_logger().info("WP11 REACHED")
                 self.state = "WAYPOINT_11"
@@ -291,8 +293,8 @@ class OffboardControl(LifecycleNode):
         elif self.state == "WAYPOINT_11":
             vehicle_command.publish_heartbeat_ob_pos_sp(
                 self.offboard_control_mode_publisher, self.get_clock())
-            msg = String()
-            msg.data = "Ready"
+            msg = Bool()
+            msg.data = True
             self.readiness_publisher.publish(msg)
 
             self.pos_yaw = 0
