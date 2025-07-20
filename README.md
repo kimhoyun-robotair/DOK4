@@ -22,15 +22,15 @@
 Gazebo와 PX4는 미리 실행하였다고 가정합니다.
 
 - VTOL 장거리 자율 비행
-  ```
+  ```bash
   $ ros2 run final_mission final_mission.py
   ```
 - FSM
-  ```
+  ```bash
   $ ros2 run final_mission fsm
   ```
 - 전체 실행 코드
-  ```
+  ```bash
   # Terminal 1
   $ ros2 launch final_mission sim_final_mission.launch.py
 
