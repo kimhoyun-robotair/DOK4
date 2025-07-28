@@ -21,6 +21,7 @@ install(TARGETS fsm DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY
   launch
   final_mission
+  config
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -29,9 +30,13 @@ ament_python_install_package(${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
-  scripts/final_mission.py
-  scripts/geometry_utils.py
-  scripts/vehicle_command.py
+  flight_test/geometry_utils.py
+  flight_test/vehicle_command.py
+  flight_test/autonomous_flight_mission_mode.py
+  flight_test/autonomous_flight_mission_offboard.py
+  flight_test/combined_flight_landing_mission.py
+  flight_test/combined_flight_landing_offboard.py
+  flight_test/precision_landing_test.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
