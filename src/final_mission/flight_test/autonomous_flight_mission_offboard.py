@@ -25,11 +25,6 @@ class OffboardControl(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
-        # Qos for FSM
-        qos_profile = QoSProfile(
-            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-            depth=1
-        )
 
         self.declare_parameter("WP1_lat", 37.405071)
         self.declare_parameter("WP1_lon", 126.613924)

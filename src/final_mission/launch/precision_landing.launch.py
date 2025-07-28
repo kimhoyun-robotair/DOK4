@@ -23,7 +23,7 @@ def generate_launch_description():
 
     offboard_test_node = Node(
         package = "final_mission",
-        executable="combined_flight_landing_offboard.py",
+        executable="autonomous_precision_landing.py",
         name="offboard_control_node",
         output="screen",
         parameters=[param_file],

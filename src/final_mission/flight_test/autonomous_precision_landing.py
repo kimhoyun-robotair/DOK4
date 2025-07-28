@@ -49,21 +49,9 @@ class OffboardControl(LifecycleNode):
 
         self.declare_parameter("WP1_lat", 37.405071)
         self.declare_parameter("WP1_lon", 126.613924)
-        self.declare_parameter("WP2_lat", 37.403633)
-        self.declare_parameter("WP2_lon", 126.616342)
-        self.declare_parameter("WP3_lat", 37.403001)
-        self.declare_parameter("WP3_lon", 126.614233)
-        self.declare_parameter("WP4_lat", 37.404870)
-        self.declare_parameter("WP4_lon", 126.615856)
 
         wp1_lat = self.get_parameter("WP1_lat").value
         wp1_lon = self.get_parameter("WP1_lon").value
-        wp2_lat = self.get_parameter("WP2_lat").value
-        wp2_lon = self.get_parameter("WP2_lon").value
-        wp3_lat = self.get_parameter("WP3_lat").value
-        wp3_lon = self.get_parameter("WP3_lon").value
-        wp4_lat = self.get_parameter("WP4_lat").value
-        wp4_lon = self.get_parameter("WP4_lon").value
 
         # publisher
         self.offboard_control_mode_publisher = self.create_lifecycle_publisher(
@@ -86,11 +74,8 @@ class OffboardControl(LifecycleNode):
 
         # WGS84 Waypoints
         self.wgs84_waypoints = {
-            "WP0": {"lat": wp1_lat, "lon": wp1_lon, "alt": 0.0},
-            "WP1": {"lat": wp1_lat, "lon": wp1_lon, "alt": -10.0},
-            "WP2": {"lat": wp2_lat, "lon": wp2_lon, "alt": -20.0},
-            "WP3": {"lat": wp3_lat, "lon": wp3_lon, "alt": -20.0},
-            "WP4": {"lat": wp4_lat, "lon": wp4_lon, "alt": -20.0},
+            "WP0": {"lat": wp1_lat, "lon": wp1_lon, "alt": -0.0},
+            "WP1": {"lat": wp1_lat, "lon": wp1_lon, "alt": -7.0},
         }
 
         # NED Waypoints and Reference Point
@@ -203,82 +188,6 @@ class OffboardControl(LifecycleNode):
                 self.state = "WAYPOINT_1"
 
         elif self.state == "WAYPOINT_1":
-            vehicle_command.publish_heartbeat_ob_pos_sp(
-                self.offboard_control_mode_publisher, self.get_clock())
-            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP1"], self.ned_waypoints["WP2"])
-            self.pos_x = self.ned_waypoints["WP2"]["x"]
-            self.pos_y = self.ned_waypoints["WP2"]["y"]
-            self.pos_z = self.ned_waypoints["WP2"]["z"]
-            
-            vehicle_command.publish_position_setpoint(
-                self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
-            self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
-                                                                            self.vehicle_local_position.y,
-                                                                            self.vehicle_local_position.z,
-                                                                            self.ned_waypoints["WP2"],
-                                                                            self.threshold_range)
-            if self.waypoint_reach_or_not == True:
-                self.get_logger().info("WP2 REACHED")
-                self.state = "WAYPOINT_2"
-
-        elif self.state == "WAYPOINT_2":
-            vehicle_command.publish_heartbeat_ob_pos_sp(
-                self.offboard_control_mode_publisher, self.get_clock())
-            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP2"], self.ned_waypoints["WP3"])
-            self.pos_x = self.ned_waypoints["WP3"]["x"]
-            self.pos_y = self.ned_waypoints["WP3"]["y"]
-            self.pos_z = self.ned_waypoints["WP3"]["z"]
-            
-            vehicle_command.publish_position_setpoint(
-                self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
-            self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
-                                                                            self.vehicle_local_position.y,
-                                                                            self.vehicle_local_position.z,
-                                                                            self.ned_waypoints["WP3"],
-                                                                            self.threshold_range)
-            if self.waypoint_reach_or_not == True:
-                self.get_logger().info("WP3 REACHED")
-                self.state = "WAYPOINT_3"
-
-        elif self.state == "WAYPOINT_3":
-            vehicle_command.publish_heartbeat_ob_pos_sp(
-                self.offboard_control_mode_publisher, self.get_clock())
-            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP3"], self.ned_waypoints["WP4"])
-            self.pos_x = self.ned_waypoints["WP4"]["x"]
-            self.pos_y = self.ned_waypoints["WP4"]["y"]
-            self.pos_z = self.ned_waypoints["WP4"]["z"]
-            
-            vehicle_command.publish_position_setpoint(
-                self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
-            self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
-                                                                            self.vehicle_local_position.y,
-                                                                            self.vehicle_local_position.z,
-                                                                            self.ned_waypoints["WP4"],
-                                                                            self.threshold_range)
-            if self.waypoint_reach_or_not == True:
-                self.get_logger().info("WP4 REACHED")
-                self.state = "WAYPOINT_4"
-
-        elif self.state == "WAYPOINT_4":
-            vehicle_command.publish_heartbeat_ob_pos_sp(
-                self.offboard_control_mode_publisher, self.get_clock())
-            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP4"], self.ned_waypoints["WP1"])
-            self.pos_x = self.ned_waypoints["WP1"]["x"]
-            self.pos_y = self.ned_waypoints["WP1"]["y"]
-            self.pos_z = -6.5
-            
-            vehicle_command.publish_position_setpoint(
-                self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
-            self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
-                                                                            self.vehicle_local_position.y,
-                                                                            self.vehicle_local_position.z,
-                                                                            self.ned_waypoints["WP1"],
-                                                                            self.threshold_range)
-            if self.waypoint_reach_or_not == True:
-                self.get_logger().info("WP1 REACHED")
-                self.state = "LAND"
-
-        elif self.state == "LAND":
             vehicle_command.publish_heartbeat_ob_pos_sp(
                 self.offboard_control_mode_publisher, self.get_clock())
             msg = Bool()

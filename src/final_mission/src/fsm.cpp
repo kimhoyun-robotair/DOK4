@@ -93,7 +93,7 @@ public:
   : Node("multi_lc_supervisor")
   {
     // Register nodes (key, actual node name).
-    add_node(OFFBOARD_KEY, "offboard_control", true);
+    add_node(OFFBOARD_KEY, "offboard_control_node", true);
     add_node(ARUCO_KEY,    "lifecycle_aruco_tracker", true);
     add_node(PLAND_KEY,    "precision_land_offboard_lifecycle", true);
 
