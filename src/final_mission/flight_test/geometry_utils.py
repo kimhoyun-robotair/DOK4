@@ -38,7 +38,7 @@ def get_distance_between_ned(x_now, y_now, z_now, x_next, y_next, z_next):
     dy = y_next - y_now
     dz = z_next - z_now
 
-    dist_xy = math.sqrt(dx*dx+dy*dy)
+    dist_xy = abs(math.sqrt(dx*dx+dy*dy))
     dist_z = abs(dz)
     total_dist = math.sqrt(dist_xy*dist_xy + dist_z*dist_z)
 

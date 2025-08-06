@@ -59,29 +59,21 @@ class OffboardControl(Node):
             VehicleAttitude, '/fmu/out/vehicle_attitude', self.vehicle_attitude_callback, self.qos_profile)
         self.vehicle_status_subscriber = self.create_subscription(
             VehicleStatus, '/fmu/out/vehicle_status', self.vehicle_status_callback, self.qos_profile)
+        self.vehicle_global_position_subscriber = self.create_subscription(
+            VehicleGlobalPosition, '/fmu/out/vehicle_global_position', self.vehicle_global_position_callback, self.qos_profile)
 
         # WGS84 Waypoints
         self.wgs84_waypoints = {
-            "WP0": {"lat": wp1_lat, "lon": wp1_lon, "alt": 0.0},
-            "WP1": {"lat": wp1_lat, "lon": wp1_lon, "alt": -20.0},
-            "WP2": {"lat": wp2_lat, "lon": wp2_lon, "alt": -20.0},
-            "WP3": {"lat": wp3_lat, "lon": wp3_lon, "alt": -20.0},
-            "WP4": {"lat": wp4_lat, "lon": wp4_lon, "alt": -20.0},
+            "WP0": {},
+            "WP1": {"alt": -5.0},
+            "WP2": {"lat": wp1_lat, "lon": wp1_lon, "alt": -5.0},
+            "WP3": {"lat": wp2_lat, "lon": wp2_lon, "alt": -5.0},
+            "WP4": {"lat": wp3_lat, "lon": wp3_lon, "alt": -5.0},
+            "WP5": {"lat": wp4_lat, "lon": wp4_lon, "alt": -5.0},
         }
 
         # NED Waypoints and Reference Point
         self.ned_waypoints = {}
-        self.ref_lat = math.radians(self.wgs84_waypoints["WP0"]["lat"])
-        self.ref_lon = math.radians(self.wgs84_waypoints["WP0"]["lon"])
-
-        # WGS84 to NED Coordinate
-        for wp_name, wp_data in self.wgs84_waypoints.items():
-            lat = wp_data["lat"]
-            lon = wp_data["lon"]
-            alt = wp_data["alt"]
-            x, y = geometry_utils.wgs84_to_ned(lat, lon, self.ref_lat, self.ref_lon)
-            self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": alt}
-        self.get_logger().info(f"Pre-calculated waypoints in NED coordinates:\n{self.ned_waypoints}")
 
         # Variable Initialization
         self.state = "NOT_READY"
@@ -89,16 +81,16 @@ class OffboardControl(Node):
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_attitude = VehicleAttitude()
         self.vehicle_status = VehicleStatus()
-        self.vehicle_global_position = VehicleGlobalPosition()
 
         self.pos_x = 0.0
         self.pos_y = 0.0
         self.pos_z = 0.0
         self.pos_yaw = 0.0
         self.global_dist = 0.0
-        self.takeoff_height = self.wgs84_waypoints["WP1"]["alt"]
+        self.takeoff_height = -5.0
         self.waypoint_reach_or_not = False
         self.height_reach_or_not = False
+        self.origin_set = False
 
         self.transition_to_fc = False
         self.transition_to_mc = False
@@ -106,7 +98,7 @@ class OffboardControl(Node):
         self.threshold_range = 3.0
         self.threshold_height = abs(1.0)
 
-        self.timer = self.create_timer(0.01, self.timer_callback)
+        self.timer = self.create_timer(0.1, self.timer_callback)
 
         self.get_logger().info("Configure complete.")
     
@@ -122,9 +114,40 @@ class OffboardControl(Node):
     def vehicle_status_callback(self, vehicle_status):
         """Callback for vehicle status."""
         self.vehicle_status = vehicle_status
+    
+    def vehicle_global_position_callback(self, vehicle_global_position):
+        """Callback for vehicle global position."""
+        self.vehicle_global_position = vehicle_global_position
+
+        if not self.origin_set:
+            self.wgs84_waypoints["WP0"] = {
+                "lat": vehicle_global_position.lat,
+                "lon": vehicle_global_position.lon,
+                "alt": 0.0}
+            self.wgs84_waypoints["WP1"] = {
+                "lat": vehicle_global_position.lat,
+                "lon": vehicle_global_position.lon,
+                "alt": -5.0}
+        
+            self.ref_lat = math.radians(self.wgs84_waypoints["WP0"]["lat"])
+            self.ref_lon = math.radians(self.wgs84_waypoints["WP0"]["lon"])
+
+            # WGS84 to NED Coordinate
+            for wp_name, wp_data in self.wgs84_waypoints.items():
+                lat = wp_data["lat"]
+                lon = wp_data["lon"]
+                alt = wp_data["alt"]
+                x, y = geometry_utils.wgs84_to_ned(lat, lon, self.ref_lat, self.ref_lon)
+                self.ned_waypoints[wp_name] = {"x": x, "y": y, "z": alt}
+            self.get_logger().info(f"Pre-defined waypoints in WGS84 coordinates:\n{self.wgs84_waypoints}")
+            self.get_logger().info(f"Pre-calculated waypoints in NED coordinates:\n{self.ned_waypoints}")
+
+            self.origin_set = True
 
     # Timer Callback ---------------------------------------------------
     def timer_callback(self):
+        if not self.origin_set:
+            return
         # Take-off 상태 처리
         if self.state == "NOT_READY":
             vehicle_command.publish_heartbeat_ob_pos_sp(
@@ -133,15 +156,19 @@ class OffboardControl(Node):
                 self.offboard_setpoint_counter += 1
             self.offboard_setpoint_counter %= 11
             if self.offboard_setpoint_counter < 5:
-                self.pos_x = 0.0
-                self.pos_y = 0.0
+                self.pos_x = self.ned_waypoints["WP0"]["x"]
+                self.pos_y = self.ned_waypoints["WP0"]["y"]
                 self.pos_z = self.takeoff_height
                 # self.pos_yaw = np.rad2deg(self.vehicle_euler[0])
-                self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP1"])
+                self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP0"], self.ned_waypoints["WP2"])
                 vehicle_command.engage_offboard_mode(
                     self.vehicle_command_publisher, self.get_clock())
+                # 디버깅용 로그
+                self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
             if self.offboard_setpoint_counter == 9:
                 vehicle_command.arm(self.vehicle_command_publisher, self.get_clock())
+                # 디버깅용 로그
+                self.get_logger().info("Arming")
 
             vehicle_command.publish_position_setpoint(
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
@@ -149,6 +176,7 @@ class OffboardControl(Node):
                                                                         self.takeoff_height, self.threshold_height)
             if (self.height_reach_or_not == True and
                 self.vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD):
+                # 디버깅용 로그
                 self.get_logger().info("WP1 REACHED")
                 self.state = "WAYPOINT_1"
 
@@ -162,12 +190,15 @@ class OffboardControl(Node):
             
             vehicle_command.publish_position_setpoint(
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
+            # 디버깅용 로그
+            self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
             self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
                                                                             self.vehicle_local_position.y,
                                                                             self.vehicle_local_position.z,
                                                                             self.ned_waypoints["WP2"],
                                                                             self.threshold_range)
             if self.waypoint_reach_or_not == True:
+                # 디버깅용 로그
                 self.get_logger().info("WP2 REACHED")
                 self.state = "WAYPOINT_2"
 
@@ -181,6 +212,8 @@ class OffboardControl(Node):
             
             vehicle_command.publish_position_setpoint(
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
+            # 디버깅용 로그
+            self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
             self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
                                                                             self.vehicle_local_position.y,
                                                                             self.vehicle_local_position.z,
@@ -200,6 +233,8 @@ class OffboardControl(Node):
             
             vehicle_command.publish_position_setpoint(
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
+            # 디버깅용 로그
+            self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
             self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
                                                                             self.vehicle_local_position.y,
                                                                             self.vehicle_local_position.z,
@@ -212,13 +247,36 @@ class OffboardControl(Node):
         elif self.state == "WAYPOINT_4":
             vehicle_command.publish_heartbeat_ob_pos_sp(
                 self.offboard_control_mode_publisher, self.get_clock())
-            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP4"], self.ned_waypoints["WP1"])
+            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP4"], self.ned_waypoints["WP5"])
+            self.pos_x = self.ned_waypoints["WP5"]["x"]
+            self.pos_y = self.ned_waypoints["WP5"]["y"]
+            self.pos_z = self.ned_waypoints["WP5"]["z"]
+            
+            vehicle_command.publish_position_setpoint(
+                self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
+            # 디버깅용 로그
+            self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
+            self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
+                                                                            self.vehicle_local_position.y,
+                                                                            self.vehicle_local_position.z,
+                                                                            self.ned_waypoints["WP5"],
+                                                                            self.threshold_range)
+            if self.waypoint_reach_or_not == True:
+                self.get_logger().info("WP4 REACHED")
+                self.state = "WAYPOINT_5"
+
+        elif self.state == "WAYPOINT_5":
+            vehicle_command.publish_heartbeat_ob_pos_sp(
+                self.offboard_control_mode_publisher, self.get_clock())
+            self.pos_yaw = geometry_utils.get_attitude(self.ned_waypoints["WP5"], self.ned_waypoints["WP1"])
             self.pos_x = self.ned_waypoints["WP1"]["x"]
             self.pos_y = self.ned_waypoints["WP1"]["y"]
             self.pos_z = self.ned_waypoints["WP1"]["z"]
             
             vehicle_command.publish_position_setpoint(
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
+            # 디버깅용 로그
+            self.get_logger().info(f"Waypoints: {self.pos_x}, {self.pos_y}, {self.pos_z}, {self.pos_yaw}")
             self.waypoint_reach_or_not = geometry_utils.is_waypoint_reached(self.vehicle_local_position.x,
                                                                             self.vehicle_local_position.y,
                                                                             self.vehicle_local_position.z,

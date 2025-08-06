@@ -32,9 +32,7 @@ ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
   flight_test/geometry_utils.py
   flight_test/vehicle_command.py
-  flight_test/autonomous_flight_mission_mode.py
   flight_test/autonomous_flight_mission_offboard.py
-  flight_test/combined_flight_landing_mission.py
   flight_test/combined_flight_landing_offboard.py
   flight_test/autonomous_precision_landing.py
   DESTINATION lib/${PROJECT_NAME}
