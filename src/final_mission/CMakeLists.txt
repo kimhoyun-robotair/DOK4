@@ -35,7 +35,6 @@ install(PROGRAMS
   flight_test/autonomous_flight_mission_offboard.py
   flight_test/combined_flight_landing_offboard.py
   flight_test/autonomous_precision_landing.py
-  flight_test/test.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
