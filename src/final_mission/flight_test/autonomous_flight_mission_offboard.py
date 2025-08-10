@@ -146,7 +146,9 @@ class OffboardControl(Node):
 
     # Timer Callback ---------------------------------------------------
     def timer_callback(self):
+        self.get_logger().info(f"Coordinates: {self.ned_waypoints}")
         if not self.origin_set:
+            self.get_logger().info("Not Ready for Global Position")
             return
         # Take-off 상태 처리
         if self.state == "NOT_READY":
@@ -174,6 +176,7 @@ class OffboardControl(Node):
                 self.trajectory_setpoint_publisher, self.pos_x, self.pos_y, self.pos_z, self.pos_yaw, self.get_clock())
             self.height_reach_or_not = geometry_utils.is_height_reached(self.vehicle_local_position.z, 
                                                                         self.takeoff_height, self.threshold_height)
+            self.get_logger().info(f"Is It? {self.height_reach_or_not} and {self.vehicle_status.nav_state}")
             if (self.height_reach_or_not == True and
                 self.vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD):
                 # 디버깅용 로그
